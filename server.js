@@ -1,15 +1,15 @@
 const express = require('express');
 const app = express();
 
-// Railway 必须使用这个端口
+// Railway 强制使用这个端口
 const PORT = process.env.PORT || 3000;
 
 // 内存存储（Railway 可用）
 const records = [];
 
-// 根路径（用来判断服务是否活着）
+// 健康检查（防止黑屏）
 app.get('/', (req, res) => {
-  res.send('OK - service is running');
+  res.send('OK - Railway service is running');
 });
 
 // 生成随机链接
@@ -19,7 +19,7 @@ app.get('/generate', (req, res) => {
   res.json({ link });
 });
 
-// 访问链接并记录
+// 点击链接记录 IP
 app.get('/r/:token', (req, res) => {
   const ip =
     req.headers['x-forwarded-for']?.split(',')[0] ||
@@ -38,7 +38,7 @@ app.get('/r/:token', (req, res) => {
   `);
 });
 
-// 后台查看（无密码，先保证能跑）
+// 后台页面
 app.get('/admin', (req, res) => {
   const rows = records.map(r => `
     <tr>
@@ -51,14 +51,16 @@ app.get('/admin', (req, res) => {
 
   res.send(`
 <!doctype html>
-<html>
+<html lang="zh">
 <head>
-<meta charset="utf-8">
-<title>后台</title>
+<meta charset="UTF-8">
+<title>访问记录后台</title>
 <style>
-body{font-family:Arial;padding:20px}
-table{border-collapse:collapse;width:100%}
-th,td{border:1px solid #ccc;padding:6px}
+body { font-family: Arial; padding: 20px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ccc; padding: 6px; }
+button { padding: 6px 12px; margin-bottom: 8px; }
+input { width: 100%; padding: 6px; }
 </style>
 </head>
 <body>
@@ -66,7 +68,7 @@ th,td{border:1px solid #ccc;padding:6px}
 <h1>访问记录后台</h1>
 
 <button onclick="gen()">生成随机链接</button>
-<input id="link" style="width:100%;margin:10px 0" readonly>
+<input id="link" readonly>
 
 <table>
 <tr>
@@ -79,11 +81,11 @@ ${rows}
 </table>
 
 <script>
-function gen(){
+function gen() {
   fetch('/generate')
-    .then(r=>r.json())
-    .then(d=>{
-      link.value=d.link;
+    .then(r => r.json())
+    .then(d => {
+      link.value = d.link;
       link.select();
       document.execCommand('copy');
       alert('链接已生成并复制');
@@ -97,5 +99,5 @@ function gen(){
 });
 
 app.listen(PORT, () => {
-  console.log('Listening on port', PORT);
-});
+  console.log('Server listening on port', PORT);
+}); 
