@@ -1,139 +1,184 @@
-const express = require("express");
-const session = require("express-session");
-const { Pool } = require("pg");
+import express from 'express';
+import session from 'express-session';
+import pkg from 'pg';
+import { v4 as uuidv4 } from 'uuid';
 
+const { Pool } = pkg;
 const app = express();
 
-/* ========= 基础配置 ========= */
+/* ======================
+   基础配置
+====================== */
 
-const PORT = process.env.PORT || 3000;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "123456";
+const PORT = process.env.PORT || 8080;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
-/* ========= PostgreSQL ========= */
+if (!process.env.DATABASE_URL) {
+  console.error('❌ DATABASE_URL not set');
+  process.exit(1);
+}
+
+if (!ADMIN_PASSWORD) {
+  console.error('❌ ADMIN_PASSWORD not set');
+  process.exit(1);
+}
+
+/* ======================
+   数据库（Railway 官方方式）
+====================== */
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
-/* 初始化表 */
-(async () => {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS visits (
-      id SERIAL PRIMARY KEY,
-      ip TEXT,
-      user_agent TEXT,
-      visit_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-})();
+/* 不在启动时强连数据库，避免直接崩 */
 
-/* ========= 中间件 ========= */
+/* ======================
+   中间件
+====================== */
 
 app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
 app.use(
   session({
-    secret: "railway-secret",
+    secret: 'railway-secret',
     resave: false,
     saveUninitialized: false
   })
 );
 
-/* ========= 首页（记录访问） ========= */
+/* ======================
+   初始化表（安全写法）
+====================== */
 
-app.get("/", async (req, res) => {
-  const ip =
-    req.headers["x-forwarded-for"]?.split(",")[0] ||
-    req.socket.remoteAddress;
-
-  const ua = req.headers["user-agent"];
-
-  await pool.query(
-    "INSERT INTO visits (ip, user_agent) VALUES ($1, $2)",
-    [ip, ua]
-  );
-
-  res.send(`
-    <h2>网站正常运行</h2>
-    <p>这是一个访问统计测试页面</p>
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS links (
+      id UUID PRIMARY KEY,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS visits (
+      id SERIAL PRIMARY KEY,
+      link_id UUID,
+      ip TEXT,
+      ua TEXT,
+      visited_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
+}
+
+initDB().catch(err => {
+  console.error('DB init error:', err.message);
 });
 
-/* ========= Admin 登录 ========= */
+/* ======================
+   生成随机链接
+====================== */
 
-app.get("/admin", (req, res) => {
-  if (req.session.admin) {
-    res.redirect("/admin/dashboard");
-    return;
-  }
+app.get('/generate', async (req, res) => {
+  const id = uuidv4();
+  await pool.query('INSERT INTO links (id) VALUES ($1)', [id]);
+  res.send(`生成成功：${req.protocol}://${req.get('host')}/r/${id}`);
+});
 
+/* ======================
+   访问记录（IP / UA）
+====================== */
+
+app.get('/r/:id', async (req, res) => {
+  const linkId = req.params.id;
+  const ip =
+    req.headers['x-forwarded-for']?.split(',')[0] ||
+    req.socket.remoteAddress;
+  const ua = req.headers['user-agent'] || '';
+
+  await pool.query(
+    'INSERT INTO visits (link_id, ip, ua) VALUES ($1, $2, $3)',
+    [linkId, ip, ua]
+  );
+
+  res.send('OK');
+});
+
+/* ======================
+   Admin 登录
+====================== */
+
+app.get('/admin/login', (req, res) => {
   res.send(`
-    <h2>Admin 登录</h2>
     <form method="post">
-      <input type="password" name="password" placeholder="密码" />
-      <button>登录</button>
+      <input type="password" name="password" placeholder="Admin Password"/>
+      <button>Login</button>
     </form>
   `);
 });
 
-app.post("/admin", (req, res) => {
+app.post('/admin/login', (req, res) => {
   if (req.body.password === ADMIN_PASSWORD) {
     req.session.admin = true;
-    res.redirect("/admin/dashboard");
+    res.redirect('/admin');
   } else {
-    res.send("密码错误");
+    res.send('密码错误');
   }
 });
 
-/* ========= Admin 面板 ========= */
+/* ======================
+   Admin 后台
+====================== */
 
-app.get("/admin/dashboard", async (req, res) => {
-  if (!req.session.admin) {
-    res.redirect("/admin");
-    return;
-  }
+app.get('/admin', async (req, res) => {
+  if (!req.session.admin) return res.redirect('/admin/login');
 
-  const result = await pool.query(
-    "SELECT * FROM visits ORDER BY visit_time DESC LIMIT 100"
-  );
+  const { rows } = await pool.query(`
+    SELECT visited_at, ip, ua, link_id
+    FROM visits
+    ORDER BY visited_at DESC
+    LIMIT 100
+  `);
 
-  const rows = result.rows
+  const html = rows
     .map(
-      v => `
-      <tr>
-        <td>${v.visit_time}</td>
-        <td>${v.ip}</td>
-        <td>${v.user_agent}</td>
-      </tr>`
+      r =>
+        `<tr>
+          <td>${r.visited_at}</td>
+          <td>${r.ip}</td>
+          <td>${r.ua}</td>
+          <td>${r.link_id}</td>
+        </tr>`
     )
-    .join("");
+    .join('');
 
   res.send(`
     <h2>访问记录</h2>
-    <table border="1" cellpadding="6">
-      <tr>
-        <th>时间</th>
-        <th>IP</th>
-        <th>User-Agent</th>
-      </tr>
-      ${rows}
+    <table border="1">
+      <tr><th>时间</th><th>IP</th><th>UA</th><th>Link</th></tr>
+      ${html}
     </table>
-    <br/>
-    <a href="/admin/logout">退出</a>
   `);
 });
 
-/* ========= 退出 ========= */
+/* ======================
+   健康检查（防止 Railway 杀进程）
+====================== */
 
-app.get("/admin/logout", (req, res) => {
-  req.session.destroy(() => {
-    res.redirect("/admin");
-  });
+app.get('/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.send('ok');
+  } catch {
+    res.status(500).send('db error');
+  }
 });
 
-/* ========= 启动 ========= */
+/* ======================
+   启动
+====================== */
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("Server running on port", PORT);
+app.listen(PORT, () => {
+  console.log(`✅ Server running on ${PORT}`);
 });
