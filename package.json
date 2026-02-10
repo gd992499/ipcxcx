@@ -1,9 +1,13 @@
 {
-  "name": "railway-ip-demo",
+  "name": "railway-ip-tracker",
   "version": "1.0.0",
+  "description": "Railway working IP tracker demo",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "express": "^4.19.2"
