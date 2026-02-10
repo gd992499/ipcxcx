@@ -64,7 +64,7 @@ app.get('/r/:token', (req, res) => {
 app.get('/admin', auth, (req, res) => {
   const data = JSON.parse(fs.readFileSync(DATA_FILE));
 
-  // 统计 IP 次数
+  // IP 统计
   const ipCount = {};
   data.forEach(r => {
     ipCount[r.ip] = (ipCount[r.ip] || 0) + 1;
@@ -87,39 +87,61 @@ app.get('/admin', auth, (req, res) => {
 <!DOCTYPE html>
 <html lang="zh">
 <head>
-<meta charset="UTF-8" />
+<meta charset="UTF-8">
 <title>访问记录后台</title>
 <style>
 body { font-family: Arial; padding: 20px; background: #f5f5f5; }
 table { border-collapse: collapse; width: 100%; background: #fff; }
-th, td { border: 1px solid #ccc; padding: 8px; font-size: 14px; }
+th, td { border: 1px solid #ccc; padding: 8px; }
 th { background: #eee; }
-h2 { margin-top: 30px; }
+button { padding: 8px 14px; cursor: pointer; }
+input { width: 100%; padding: 6px; margin-top: 6px; }
+.box { background:#fff; padding:15px; margin-bottom:20px; }
 </style>
 </head>
 <body>
 
 <h1>访问记录后台</h1>
 
-<h2>IP 访问统计</h2>
-<ul>${ipStats || '<li>暂无数据</li>'}</ul>
+<div class="box">
+  <h2>生成随机访问链接</h2>
+  <button onclick="gen()">生成链接</button>
+  <input id="link" readonly placeholder="点击按钮生成链接">
+</div>
 
-<h2>详细访问记录</h2>
-<table>
-<tr>
-  <th>时间</th>
-  <th>IP</th>
-  <th>Token</th>
-  <th>User-Agent</th>
-</tr>
-${rows}
-</table>
+<div class="box">
+  <h2>IP 访问统计</h2>
+  <ul>${ipStats || '<li>暂无数据</li>'}</ul>
+</div>
+
+<div class="box">
+  <h2>详细访问记录</h2>
+  <table>
+    <tr>
+      <th>时间</th>
+      <th>IP</th>
+      <th>Token</th>
+      <th>User-Agent</th>
+    </tr>
+    ${rows}
+  </table>
+</div>
+
+<script>
+function gen() {
+  fetch('/generate')
+    .then(r => r.json())
+    .then(d => {
+      const input = document.getElementById('link');
+      input.value = d.link;
+      input.select();
+      document.execCommand('copy');
+      alert('链接已生成并复制');
+    });
+}
+</script>
 
 </body>
 </html>
   `);
-});
-
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
 });
