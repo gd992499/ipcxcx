@@ -1,103 +1,107 @@
-const express = require('express');
-const app = express();
+const express = require("express");
+const session = require("express-session");
 
-// Railway 强制使用这个端口
+const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 内存存储（Railway 可用）
-const records = [];
+// ====== 配置 ======
+const ADMIN_PASSWORD = "123456"; // ← 你可以改成自己的
 
-// 健康检查（防止黑屏）
-app.get('/', (req, res) => {
-  res.send('OK - Railway service is running');
-});
+// ====== 中间件 ======
+app.use(express.urlencoded({ extended: true }));
 
-// 生成随机链接
-app.get('/generate', (req, res) => {
-  const token = Math.random().toString(36).slice(2, 10);
-  const link = `${req.protocol}://${req.get('host')}/r/${token}`;
-  res.json({ link });
-});
+app.use(
+  session({
+    secret: "railway-secret",
+    resave: false,
+    saveUninitialized: true,
+  })
+);
 
-// 点击链接记录 IP
-app.get('/r/:token', (req, res) => {
-  const ip =
-    req.headers['x-forwarded-for']?.split(',')[0] ||
-    req.socket.remoteAddress;
+// ====== 内存访问记录（演示用） ======
+const visitLogs = [];
 
-  records.push({
-    time: new Date().toISOString(),
-    ip,
-    token: req.params.token,
-    ua: req.headers['user-agent']
+// ====== 主页（任何人访问） ======
+app.get("/", (req, res) => {
+  visitLogs.push({
+    time: new Date().toLocaleString(),
+    ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+    ua: req.headers["user-agent"],
   });
 
   res.send(`
-    <h2>访问提示</h2>
-    <p>本页面会记录访问 IP，用于技术学习与访问统计。</p>
+    <h2>网站正常运行</h2>
+    <p>这是一个测试页面</p>
   `);
 });
 
-// 后台页面
-app.get('/admin', (req, res) => {
-  const rows = records.map(r => `
-    <tr>
-      <td>${r.time}</td>
-      <td>${r.ip}</td>
-      <td>${r.token}</td>
-      <td style="max-width:300px;word-break:break-all">${r.ua}</td>
-    </tr>
-  `).join('');
+// ====== Admin 登录页 ======
+app.get("/admin", (req, res) => {
+  if (req.session.loggedIn) {
+    return res.redirect("/admin/dashboard");
+  }
 
   res.send(`
-<!doctype html>
-<html lang="zh">
-<head>
-<meta charset="UTF-8">
-<title>访问记录后台</title>
-<style>
-body { font-family: Arial; padding: 20px; }
-table { border-collapse: collapse; width: 100%; }
-th, td { border: 1px solid #ccc; padding: 6px; }
-button { padding: 6px 12px; margin-bottom: 8px; }
-input { width: 100%; padding: 6px; }
-</style>
-</head>
-<body>
-
-<h1>访问记录后台</h1>
-
-<button onclick="gen()">生成随机链接</button>
-<input id="link" readonly>
-
-<table>
-<tr>
-  <th>时间</th>
-  <th>IP</th>
-  <th>Token</th>
-  <th>User-Agent</th>
-</tr>
-${rows}
-</table>
-
-<script>
-function gen() {
-  fetch('/generate')
-    .then(r => r.json())
-    .then(d => {
-      link.value = d.link;
-      link.select();
-      document.execCommand('copy');
-      alert('链接已生成并复制');
-    });
-}
-</script>
-
-</body>
-</html>
+    <h2>Admin Login</h2>
+    <form method="post" action="/admin/login">
+      <input type="password" name="password" placeholder="Admin Password"/>
+      <button type="submit">Login</button>
+    </form>
   `);
 });
 
+// ====== 处理登录 ======
+app.post("/admin/login", (req, res) => {
+  if (req.body.password === ADMIN_PASSWORD) {
+    req.session.loggedIn = true;
+    res.redirect("/admin/dashboard");
+  } else {
+    res.send("密码错误");
+  }
+});
+
+// ====== Admin 后台 ======
+app.get("/admin/dashboard", (req, res) => {
+  if (!req.session.loggedIn) {
+    return res.redirect("/admin");
+  }
+
+  const rows = visitLogs
+    .map(
+      (v, i) =>
+        `<tr>
+          <td>${i + 1}</td>
+          <td>${v.time}</td>
+          <td>${v.ip}</td>
+          <td>${v.ua}</td>
+        </tr>`
+    )
+    .join("");
+
+  res.send(`
+    <h2>访问记录</h2>
+    <table border="1" cellpadding="5">
+      <tr>
+        <th>#</th>
+        <th>时间</th>
+        <th>IP</th>
+        <th>User-Agent</th>
+      </tr>
+      ${rows}
+    </table>
+    <br/>
+    <a href="/admin/logout">退出登录</a>
+  `);
+});
+
+// ====== 退出 ======
+app.get("/admin/logout", (req, res) => {
+  req.session.destroy(() => {
+    res.redirect("/admin");
+  });
+});
+
+// ====== 启动服务（⚠️关键） ======
 app.listen(PORT, () => {
-  console.log('Server listening on port', PORT);
-}); 
+  console.log("Server running on port", PORT);
+});
